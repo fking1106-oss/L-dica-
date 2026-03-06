@@ -1,127 +1,168 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+from datetime import datetime
 import time
 
-# Configuración de la página con estilo moderno
+# --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
-    page_title="Gestión de Inventario Pro",
-    page_icon="📦",
-    layout="wide"
+    page_title="Dashboard de Inventario Inteligente",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# Estilo personalizado con CSS
+# --- ESTILOS CSS PARA ESTÉTICA PREMIUM ---
 st.markdown("""
     <style>
-    .main {
-        background-color: #f8f9fa;
+    /* Fondo general */
+    .stApp {
+        background-color: #0e1117;
     }
-    .stMetric {
-        background-color: #ffffff;
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    /* Contenedores de métricas */
+    div[data-testid="stMetricValue"] {
+        font-size: 2rem;
+        color: #00d4ff;
+    }
+    /* Estilo para los títulos */
+    h1, h2, h3 {
+        color: #ffffff !important;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    /* Quitar padding innecesario */
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 0rem;
     }
     </style>
     """, unsafe_allow_html=True)
 
 def load_data(sheet_id):
-    """Carga datos desde Google Sheets."""
+    """Carga datos desde Google Sheets sin cache para velocidad máxima."""
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
     try:
+        # Usamos un parámetro aleatorio en la URL para evitar caché de red si fuera necesario
         df = pd.read_csv(url)
         return df
     except Exception as e:
-        st.error(f"Error de conexión: {e}")
+        st.error(f"Error al conectar con la fuente de datos: {e}")
         return None
 
-def create_gauge(current_value, reorder_point, title):
-    """Crea un gráfico de velocímetro (Gauge) estético."""
-    # Determinamos el color basado en el punto de reorden
-    color = "red" if current_value <= reorder_point else "orange" if current_value <= reorder_point * 1.5 else "green"
+def draw_gauge(current_val, reorder_val, title, max_val=100):
+    """Genera un velocímetro estilizado con zonas de color."""
     
+    # Definir colores dinámicos basados en el estado
+    if current_val <= reorder_val:
+        bar_color = "#FF4B4B"  # Rojo
+    elif current_val <= reorder_val * 1.3:
+        bar_color = "#FFAA00"  # Naranja/Amarillo
+    else:
+        bar_color = "#00CC96"  # Verde
+
     fig = go.Figure(go.Indicator(
-        mode = "gauge+number",
-        value = current_value,
-        domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': title, 'font': {'size': 18}},
-        gauge = {
-            'axis': {'range': [None, max(current_value * 2, reorder_point * 2)]},
-            'bar': {'color': color},
-            'bgcolor': "white",
-            'borderwidth': 2,
-            'bordercolor': "gray",
+        mode="gauge+number",
+        value=current_val,
+        title={'text': f"<b>{title}</b>", 'font': {'size': 20, 'color': 'white'}},
+        number={'font': {'color': 'white', 'size': 40}, 'suffix': ""},
+        gauge={
+            'axis': {'range': [0, max_val], 'tickwidth': 1, 'tickcolor': "white"},
+            'bar': {'color': bar_color, 'thickness': 0.6},
+            'bgcolor': "rgba(255, 255, 255, 0.1)",
+            'borderwidth': 0,
             'steps': [
-                {'range': [0, reorder_point], 'color': 'rgba(255, 0, 0, 0.2)'},
-                {'range': [reorder_point, reorder_point * 1.5], 'color': 'rgba(255, 255, 0, 0.2)'}
+                {'range': [0, reorder_val], 'color': 'rgba(255, 75, 75, 0.3)'},
+                {'range': [reorder_val, max_val], 'color': 'rgba(0, 204, 150, 0.1)'}
             ],
             'threshold': {
-                'line': {'color': "black", 'width': 4},
-                'thickness': 0.75,
-                'value': reorder_point
+                'line': {'color': "white", 'width': 4},
+                'thickness': 0.8,
+                'value': reorder_val
             }
         }
     ))
-    fig.update_layout(height=250, margin=dict(l=20, r=20, t=50, b=20))
+
+    fig.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        margin=dict(l=30, r=30, t=50, b=20),
+        height=280
+    )
     return fig
 
 def main():
-    # --- BARRA LATERAL (Configuración) ---
-    st.sidebar.header("⚙️ Configuración")
-    
-    # Punto de reorden global (puede ser por producto, aquí lo hacemos ajustable)
-    reorder_level = st.sidebar.slider("Punto de Reorden Sugerido", 0, 100, 20)
-    
-    # Intervalo de actualización automática
-    auto_refresh_interval = st.sidebar.selectbox(
-        "Intervalo de actualización automática",
-        options=[30, 60, 300, 600],
-        format_func=lambda x: f"{x} segundos" if x < 60 else f"{x//60} minutos"
-    )
+    # --- BARRA LATERAL ---
+    with st.sidebar:
+        st.image("https://cdn-icons-png.flaticon.com/512/2897/2897832.png", width=80)
+        st.title("Configuración")
+        
+        reorder_point = st.slider("Punto de Reorden (Stock de Seguridad)", 0, 100, 15)
+        
+        refresh_rate = st.select_slider(
+            "Velocidad de actualización",
+            options=[5, 10, 30, 60],
+            value=5,
+            help="Segundos entre actualizaciones"
+        )
+        
+        st.divider()
+        st.info("La plataforma toma automáticamente la última entrada registrada en el historial.")
 
-    # --- LÓGICA DE CARGA ---
+    # --- LÓGICA DE DATOS ---
     SHEET_ID = "1dCOy5iFQNx63fpARx-Ztx1ISy81Es0K4_2ZCyQ1lq0w"
-    
-    # Título y Header
-    st.title("📦 Panel de Control de Inventario")
-    last_update = st.empty()
-    last_update.caption(f"Última actualización: {time.strftime('%H:%M:%S')}")
+    df_raw = load_data(SHEET_ID)
 
-    # Cargar datos
-    df = load_data(SHEET_ID)
+    if df_raw is not None and not df_raw.empty:
+        # 1. Extraer el ÚLTIMO dato del histórico (última fila)
+        latest_data = df_raw.iloc[-1]
+        
+        # Asumimos estructura del sheet: Col 0: Timestamp/ID, Col 1: Producto A, Col 2: Producto B...
+        # O similar. Aquí identificamos columnas numéricas para graficar.
+        numeric_cols = df_raw.select_dtypes(include=['number']).columns.tolist()
 
-    if df is not None:
-        # --- MÉTRICAS Y VELOCÍMETROS ---
-        st.subheader("Visualización de Niveles de Stock")
-        
-        # Simulamos que la primera columna es el nombre y la segunda la cantidad
-        # Ajusta esto según el nombre real de tus columnas en el Google Sheet
-        cols = st.columns(min(len(df), 3))
-        
-        for i, row in df.iterrows():
-            if i < 3: # Limitamos a los primeros 3 para el ejemplo visual
-                product_name = str(row.iloc[0])
-                current_stock = float(row.iloc[1]) if isinstance(row.iloc[1], (int, float)) else 0
-                
-                with cols[i]:
-                    st.plotly_chart(create_gauge(current_stock, reorder_level, product_name), use_container_width=True)
-        
-        # --- TABLA DETALLADA ---
-        st.subheader("📋 Detalle General de Inventario")
-        
-        # Aplicamos formato condicional a la tabla
-        def highlight_stock(s):
-            return ['background-color: #ffcccc' if (isinstance(val, (int, float)) and val <= reorder_level) else '' for val in s]
+        # --- ENCABEZADO ---
+        col_t1, col_t2 = st.columns([3, 1])
+        with col_t1:
+            st.title("🚀 Monitor de Inventario en Tiempo Real")
+        with col_t2:
+            st.markdown(f"<p style='text-align:right; color:#888;'>Actualizado: {datetime.now().strftime('%H:%M:%S')}</p>", unsafe_allow_html=True)
 
-        st.dataframe(df.style.apply(highlight_stock, axis=1), use_container_width=True)
+        st.divider()
 
-        # --- AUTO-REFRESH ---
-        # JavaScript para recargar la página automáticamente según el tiempo seleccionado
-        time.sleep(auto_refresh_interval)
-        st.rerun()
+        # --- VISUALIZACIÓN DE VELOCÍMETROS (TOP 3 O 4) ---
+        if len(numeric_cols) > 0:
+            cols_gauges = st.columns(min(len(numeric_cols), 4))
+            for i, col_name in enumerate(numeric_cols[:4]):
+                current_value = latest_data[col_name]
+                with cols_gauges[i]:
+                    st.plotly_chart(draw_gauge(current_value, reorder_point, col_name), use_container_width=True)
+
+        # --- SECCIÓN INFERIOR: HISTÓRICO Y TABLA ---
+        st.divider()
+        col_list, col_graph = st.columns([1, 2])
+
+        with col_list:
+            st.subheader("📋 Estado Actual")
+            # Mostrar métricas rápidas del último registro
+            for col_name in numeric_cols[:5]:
+                val = latest_data[col_name]
+                status = "🔴 Crítico" if val <= reorder_point else "🟢 Normal"
+                st.metric(label=col_name, value=val, delta=status, delta_color="normal" if val > reorder_point else "inverse")
+
+        with col_graph:
+            st.subheader("📈 Tendencia Reciente")
+            # Graficamos los últimos 20 registros para ver la evolución
+            st.line_chart(df_raw[numeric_cols].tail(20))
+
+        # --- TABLA DE DATOS CRUDOS ---
+        with st.expander("Ver base de datos completa (Historial)"):
+            st.dataframe(df_raw.sort_index(ascending=False), use_container_width=True)
 
     else:
-        st.error("No se pudieron cargar los datos. Verifica el enlace de Google Sheets.")
+        st.warning("Esperando conexión con Google Sheets...")
+
+    # --- LÓGICA DE REFRESH AUTOMÁTICO ---
+    time.sleep(refresh_rate)
+    st.rerun()
 
 if __name__ == "__main__":
     main()
