@@ -34,19 +34,14 @@ st.markdown("""
         padding-top: 2rem;
         padding-bottom: 0rem;
     }
-    /* Estilo para inputs de barra lateral */
-    .stNumberInput input {
-        background-color: #1e2130 !important;
-        color: #00d4ff !important;
-    }
     </style>
     """, unsafe_allow_html=True)
 
 def load_data(sheet_id):
     """Carga datos desde Google Sheets sin cache para velocidad máxima."""
-    ts = int(time.time())
-    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&cb={ts}"
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
     try:
+        # Usamos un parámetro aleatorio en la URL para evitar caché de red si fuera necesario
         df = pd.read_csv(url)
         return df
     except Exception as e:
@@ -54,7 +49,7 @@ def load_data(sheet_id):
         return None
 
 def draw_gauge(current_val, reorder_val, title, max_val=100):
-    """Genera un velocímetro estilizado con zonas de color basadas en stock de seguridad."""
+    """Genera un velocímetro estilizado con zonas de color."""
     
     # Definir colores dinámicos basados en el estado
     if current_val <= reorder_val:
@@ -70,12 +65,13 @@ def draw_gauge(current_val, reorder_val, title, max_val=100):
         title={'text': f"<b>{title}</b>", 'font': {'size': 20, 'color': 'white'}},
         number={'font': {'color': 'white', 'size': 40}, 'suffix': ""},
         gauge={
-            'axis': {'range': [0, max(max_val, current_val + 20)], 'tickwidth': 1, 'tickcolor': "white"},
+            'axis': {'range': [0, max_val], 'tickwidth': 1, 'tickcolor': "white"},
             'bar': {'color': bar_color, 'thickness': 0.6},
             'bgcolor': "rgba(255, 255, 255, 0.1)",
             'borderwidth': 0,
             'steps': [
-                {'range': [0, reorder_val], 'color': 'rgba(255, 75, 75, 0.3)'}
+                {'range': [0, reorder_val], 'color': 'rgba(255, 75, 75, 0.3)'},
+                {'range': [reorder_val, max_val], 'color': 'rgba(0, 204, 150, 0.1)'}
             ],
             'threshold': {
                 'line': {'color': "white", 'width': 4},
@@ -99,34 +95,28 @@ def main():
         st.image("https://cdn-icons-png.flaticon.com/512/2897/2897832.png", width=80)
         st.title("Configuración")
         
-        # Módulo de cálculo manual (no interfiere con la gráfica principal)
-        st.subheader("📊 Cálculo de Seguridad")
-        with st.expander("Demanda y Logística", expanded=True):
-            dem_c1 = st.number_input("Cliente A (uds/día)", value=10)
-            dem_c2 = st.number_input("Cliente B (uds/día)", value=10)
-            dem_c3 = st.number_input("Cliente C (uds/día)", value=10)
-            l_time = st.number_input("Tiempo Reposición (días)", value=5)
-            
-            # El reorder_point se calcula internamente
-            reorder_point = (dem_c1 + dem_c2 + dem_c3) * l_time
-            st.info(f"Punto de Seguridad: {reorder_point} uds")
-
+        reorder_point = st.slider("Punto de Reorden (Stock de Seguridad)", 0, 100, 15)
+        
         refresh_rate = st.select_slider(
             "Velocidad de actualización",
-            options=[2, 5, 10, 30, 60],
-            value=5
+            options=[5, 10, 30, 60],
+            value=5,
+            help="Segundos entre actualizaciones"
         )
         
         st.divider()
-        st.caption("Los datos se sincronizan con la última fila del historial.")
+        st.info("La plataforma toma automáticamente la última entrada registrada en el historial.")
 
     # --- LÓGICA DE DATOS ---
     SHEET_ID = "1dCOy5iFQNx63fpARx-Ztx1ISy81Es0K4_2ZCyQ1lq0w"
     df_raw = load_data(SHEET_ID)
 
     if df_raw is not None and not df_raw.empty:
-        # Extraer el ÚLTIMO dato
+        # 1. Extraer el ÚLTIMO dato del histórico (última fila)
         latest_data = df_raw.iloc[-1]
+        
+        # Asumimos estructura del sheet: Col 0: Timestamp/ID, Col 1: Producto A, Col 2: Producto B...
+        # O similar. Aquí identificamos columnas numéricas para graficar.
         numeric_cols = df_raw.select_dtypes(include=['number']).columns.tolist()
 
         # --- ENCABEZADO ---
@@ -134,45 +124,43 @@ def main():
         with col_t1:
             st.title("🚀 Monitor de Inventario en Tiempo Real")
         with col_t2:
-            st.markdown(f"<p style='text-align:right; color:#888; padding-top:20px;'>Actualizado: {datetime.now().strftime('%H:%M:%S')}</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='text-align:right; color:#888;'>Actualizado: {datetime.now().strftime('%H:%M:%S')}</p>", unsafe_allow_html=True)
 
         st.divider()
 
-        # --- VISUALIZACIÓN DE VELOCÍMETROS ---
+        # --- VISUALIZACIÓN DE VELOCÍMETROS (TOP 3 O 4) ---
         if len(numeric_cols) > 0:
             cols_gauges = st.columns(min(len(numeric_cols), 4))
             for i, col_name in enumerate(numeric_cols[:4]):
                 current_value = latest_data[col_name]
-                # Dinamismo en el máximo del gauge
-                max_g = max(200, reorder_point * 1.5, current_value + 10)
                 with cols_gauges[i]:
-                    st.plotly_chart(draw_gauge(current_value, reorder_point, col_name, max_g), use_container_width=True)
+                    st.plotly_chart(draw_gauge(current_value, reorder_point, col_name), use_container_width=True)
 
-        # --- SECCIÓN INFERIOR: ESTADO Y TENDENCIA ---
+        # --- SECCIÓN INFERIOR: HISTÓRICO Y TABLA ---
         st.divider()
         col_list, col_graph = st.columns([1, 2])
 
         with col_list:
             st.subheader("📋 Estado Actual")
+            # Mostrar métricas rápidas del último registro
             for col_name in numeric_cols[:5]:
                 val = latest_data[col_name]
-                # El estado depende del cálculo manual de la barra lateral
-                is_critical = val <= reorder_point
-                status = "🔴 Crítico" if is_critical else "🟢 Normal"
-                st.metric(label=col_name, value=val, delta=status, delta_color="normal" if not is_critical else "inverse")
+                status = "🔴 Crítico" if val <= reorder_point else "🟢 Normal"
+                st.metric(label=col_name, value=val, delta=status, delta_color="normal" if val > reorder_point else "inverse")
 
         with col_graph:
             st.subheader("📈 Tendencia Reciente")
+            # Graficamos los últimos 20 registros para ver la evolución
             st.line_chart(df_raw[numeric_cols].tail(20))
 
-        # --- TABLA DE DATOS ---
-        with st.expander("Ver historial completo"):
+        # --- TABLA DE DATOS CRUDOS ---
+        with st.expander("Ver base de datos completa (Historial)"):
             st.dataframe(df_raw.sort_index(ascending=False), use_container_width=True)
 
     else:
         st.warning("Esperando conexión con Google Sheets...")
 
-    # --- REFRESH ---
+    # --- LÓGICA DE REFRESH AUTOMÁTICO ---
     time.sleep(refresh_rate)
     st.rerun()
 
