@@ -6,146 +6,128 @@ import time
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
-    page_title="Dashboard de Inventario Inteligente",
+    page_title="Gestión de Inventario - Manual & Realtime",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- ESTILOS CSS PARA ESTÉTICA PREMIUM ---
+# --- ESTILOS CSS ---
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117; }
     div[data-testid="stMetricValue"] { font-size: 2rem; color: #00d4ff; }
     h1, h2, h3 { color: #ffffff !important; font-family: 'Segoe UI', sans-serif; }
-    .block-container { padding-top: 2rem; padding-bottom: 0rem; }
-    .stNumberInput div div input { color: #00d4ff !important; }
+    .block-container { padding-top: 1.5rem; padding-bottom: 0rem; }
+    /* Estilo para los inputs de número */
+    input { background-color: #1e2130 !important; color: #00d4ff !important; border: 1px solid #3d4466 !important; }
     </style>
     """, unsafe_allow_html=True)
 
 def load_data(sheet_id):
-    """Carga datos desde Google Sheets con bypass de caché."""
+    """Carga datos en tiempo real (solo para el stock actual)."""
     ts = int(time.time())
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&cb={ts}"
     try:
         df = pd.read_csv(url)
         return df
     except Exception as e:
-        st.error(f"Error al conectar con la fuente de datos: {e}")
         return None
 
-def draw_gauge(current_val, reorder_val, title, max_val=100):
-    """Genera un velocímetro estilizado con zonas de color."""
-    if current_val <= reorder_val:
-        bar_color = "#FF4B4B"
-    elif current_val <= reorder_val * 1.3:
-        bar_color = "#FFAA00"
+def draw_gauge(current_val, safety_stock, title, max_val=100):
+    """Genera un velocímetro basado en el Stock de Seguridad manual."""
+    # Lógica de color basada en el cálculo manual
+    if current_val <= safety_stock:
+        bar_color = "#FF4B4B" # Crítico
+    elif current_val <= safety_stock * 1.5:
+        bar_color = "#FFAA00" # Advertencia
     else:
-        bar_color = "#00CC96"
+        bar_color = "#00CC96" # Óptimo
 
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
         value=current_val,
-        title={'text': f"<b>{title}</b>", 'font': {'size': 20, 'color': 'white'}},
-        number={'font': {'color': 'white', 'size': 40}},
+        title={'text': f"<b>{title}</b>", 'font': {'size': 18, 'color': 'white'}},
+        number={'font': {'color': 'white', 'size': 35}},
         gauge={
-            'axis': {'range': [0, max(max_val, current_val + 10)], 'tickwidth': 1, 'tickcolor': "white"},
+            'axis': {'range': [0, max(max_val, current_val + 10)], 'tickcolor': "white"},
             'bar': {'color': bar_color, 'thickness': 0.6},
             'bgcolor': "rgba(255, 255, 255, 0.1)",
             'steps': [
-                {'range': [0, reorder_val], 'color': 'rgba(255, 75, 75, 0.3)'}
+                {'range': [0, safety_stock], 'color': 'rgba(255, 75, 75, 0.3)'}
             ],
             'threshold': {
                 'line': {'color': "white", 'width': 4},
-                'thickness': 0.8,
-                'value': reorder_val
+                'value': safety_stock
             }
         }
     ))
-    fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
-                      margin=dict(l=30, r=30, t=50, b=20), height=280)
+    fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', margin=dict(l=20, r=20, t=50, b=10), height=250)
     return fig
 
 def main():
-    # --- BARRA LATERAL: CALCULADORA DE STOCK DE SEGURIDAD ---
+    # --- BARRA LATERAL: ENTRADA MANUAL DE DATOS ---
     with st.sidebar:
-        st.image("https://cdn-icons-png.flaticon.com/512/2897/2897832.png", width=80)
-        st.title("Configuración")
+        st.title("🎛️ Parámetros Manuales")
+        st.markdown("Ingresa los datos para calcular el **Stock de Seguridad**.")
         
-        st.subheader("🛠️ Calculadora de Stock")
-        with st.expander("Ingresar Demanda de Clientes", expanded=True):
-            demanda_c1 = st.number_input("Cliente 1 (uds/día)", min_value=0, value=10)
-            demanda_c2 = st.number_input("Cliente 2 (uds/día)", min_value=0, value=15)
-            demanda_c3 = st.number_input("Cliente 3 (uds/día)", min_value=0, value=5)
-            lead_time = st.number_input("Tiempo de Reposición (días)", min_value=1, value=3)
+        with st.container():
+            st.subheader("👥 Demanda por Cliente")
+            c1 = st.number_input("Cliente A (uds/día)", min_value=0, value=12)
+            c2 = st.number_input("Cliente B (uds/día)", min_value=0, value=8)
+            c3 = st.number_input("Cliente C (uds/día)", min_value=0, value=10)
             
-            # Cálculo de Stock de Seguridad (Demanda Total Diaria * Lead Time)
-            # Este es un cálculo simplificado de punto de pedido
-            demanda_total = demanda_c1 + demanda_c2 + demanda_c3
-            safety_stock_calculado = demanda_total * lead_time
+            st.subheader("⏳ Logística")
+            lt = st.number_input("Tiempo de Reposición (días)", min_value=1, value=5)
             
-            st.info(f"**Stock de Seguridad Sugerido: {safety_stock_calculado} unidades**")
-
-        # Usar el stock calculado como punto de reorden
-        manual_override = st.checkbox("¿Usar stock calculado como límite?", value=True)
-        if manual_override:
-            reorder_point = safety_stock_calculado
-        else:
-            reorder_point = st.slider("Punto de Reorden Manual", 0, 200, 15)
-        
-        refresh_rate = st.select_slider("Velocidad de actualización (seg)", options=[2, 5, 10, 30, 60], value=5)
+            # CÁLCULO MANUAL (Independiente del histórico)
+            demanda_total = c1 + c2 + c3
+            ss_manual = demanda_total * lt
+            
+            st.success(f"**Stock de Seguridad: {ss_manual} uds**")
         
         st.divider()
-        st.caption("Los datos se toman de la última fila del historial.")
+        refresh_rate = st.select_slider("Frecuencia de refresco (seg)", options=[2, 5, 10, 30], value=5)
+        st.caption("Los medidores se ajustan automáticamente a estos valores.")
 
-    # --- LÓGICA DE DATOS ---
+    # --- LÓGICA DE VISUALIZACIÓN ---
     SHEET_ID = "1dCOy5iFQNx63fpARx-Ztx1ISy81Es0K4_2ZCyQ1lq0w"
-    df_raw = load_data(SHEET_ID)
+    df = load_data(SHEET_ID)
 
-    if df_raw is not None and not df_raw.empty:
-        latest_data = df_raw.iloc[-1]
-        numeric_cols = df_raw.select_dtypes(include=['number']).columns.tolist()
+    if df is not None and not df.empty:
+        # Solo tomamos la última fila para el stock "actual"
+        latest = df.iloc[-1]
+        num_cols = df.select_dtypes(include=['number']).columns.tolist()
 
-        # --- ENCABEZADO ---
-        col_t1, col_t2 = st.columns([3, 1])
-        with col_t1:
-            st.title("🚀 Monitor de Inventario en Tiempo Real")
-        with col_t2:
-            st.markdown(f"<p style='text-align:right; color:#888;'>Actualizado: {datetime.now().strftime('%H:%M:%S')}</p>", unsafe_allow_html=True)
+        # Encabezado
+        t1, t2 = st.columns([3, 1])
+        t1.title("📊 Monitor de Inventario Crítico")
+        t2.markdown(f"<p style='text-align:right; color:#777; padding-top:25px;'>Sincronizado: {datetime.now().strftime('%H:%M:%S')}</p>", unsafe_allow_html=True)
+
+        # Velocímetros basados en ss_manual
+        if num_cols:
+            cols = st.columns(min(len(num_cols), 4))
+            for i, col_name in enumerate(num_cols[:4]):
+                with cols[i]:
+                    val_actual = latest[col_name]
+                    st.plotly_chart(draw_gauge(val_actual, ss_manual, col_name, 200), use_container_width=True)
 
         st.divider()
+        
+        # Resumen de Métricas
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Demanda Diaria (Manual)", f"{demanda_total} uds")
+        m2.metric("Tiempo Espera", f"{lt} días")
+        m3.metric("Límite de Reorden", f"{ss_manual} uds")
 
-        # --- VELOCÍMETROS ---
-        if len(numeric_cols) > 0:
-            cols_gauges = st.columns(min(len(numeric_cols), 4))
-            for i, col_name in enumerate(numeric_cols[:4]):
-                current_value = latest_data[col_name]
-                # Ajustamos el máximo del velocímetro para que no se vea pequeño si el stock es alto
-                max_gauge = max(100, current_value * 1.5, reorder_point * 1.5)
-                with cols_gauges[i]:
-                    st.plotly_chart(draw_gauge(current_value, reorder_point, col_name, max_gauge), use_container_width=True)
-
-        # --- SECCIÓN DE ANÁLISIS ---
-        st.divider()
-        col_m1, col_m2, col_m3 = st.columns(3)
-        with col_m1:
-            st.metric("Demanda Agregada", f"{demanda_total} uds/día")
-        with col_m2:
-            st.metric("Tiempo Reposición", f"{lead_time} días")
-        with col_m3:
-            st.metric("Stock Crítico", f"{reorder_point} uds")
-
-        # Histórico
-        st.subheader("📈 Evolución del Inventario")
-        st.line_chart(df_raw[numeric_cols].tail(20))
-
-        with st.expander("Ver historial completo"):
-            st.dataframe(df_raw.sort_index(ascending=False), use_container_width=True)
+        # Gráfico de tendencia (solo visual)
+        st.subheader("📈 Histórico de Movimientos")
+        st.line_chart(df[num_cols].tail(30))
 
     else:
-        st.warning("Conectando con Google Sheets...")
+        st.info("Cargando niveles actuales de stock...")
 
-    # --- REFRESH ---
+    # Refresco automático
     time.sleep(refresh_rate)
     st.rerun()
 
