@@ -15,33 +15,19 @@ st.set_page_config(
 # --- ESTILOS CSS PARA ESTÉTICA PREMIUM ---
 st.markdown("""
     <style>
-    /* Fondo general */
-    .stApp {
-        background-color: #0e1117;
-    }
-    /* Contenedores de métricas */
-    div[data-testid="stMetricValue"] {
-        font-size: 2rem;
-        color: #00d4ff;
-    }
-    /* Estilo para los títulos */
-    h1, h2, h3 {
-        color: #ffffff !important;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    }
-    /* Quitar padding innecesario */
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 0rem;
-    }
+    .stApp { background-color: #0e1117; }
+    div[data-testid="stMetricValue"] { font-size: 2rem; color: #00d4ff; }
+    h1, h2, h3 { color: #ffffff !important; font-family: 'Segoe UI', sans-serif; }
+    .block-container { padding-top: 2rem; padding-bottom: 0rem; }
+    .stNumberInput div div input { color: #00d4ff !important; }
     </style>
     """, unsafe_allow_html=True)
 
 def load_data(sheet_id):
-    """Carga datos desde Google Sheets sin cache para velocidad máxima."""
-    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+    """Carga datos desde Google Sheets con bypass de caché."""
+    ts = int(time.time())
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&cb={ts}"
     try:
-        # Usamos un parámetro aleatorio en la URL para evitar caché de red si fuera necesario
         df = pd.read_csv(url)
         return df
     except Exception as e:
@@ -50,28 +36,24 @@ def load_data(sheet_id):
 
 def draw_gauge(current_val, reorder_val, title, max_val=100):
     """Genera un velocímetro estilizado con zonas de color."""
-    
-    # Definir colores dinámicos basados en el estado
     if current_val <= reorder_val:
-        bar_color = "#FF4B4B"  # Rojo
+        bar_color = "#FF4B4B"
     elif current_val <= reorder_val * 1.3:
-        bar_color = "#FFAA00"  # Naranja/Amarillo
+        bar_color = "#FFAA00"
     else:
-        bar_color = "#00CC96"  # Verde
+        bar_color = "#00CC96"
 
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
         value=current_val,
         title={'text': f"<b>{title}</b>", 'font': {'size': 20, 'color': 'white'}},
-        number={'font': {'color': 'white', 'size': 40}, 'suffix': ""},
+        number={'font': {'color': 'white', 'size': 40}},
         gauge={
-            'axis': {'range': [0, max_val], 'tickwidth': 1, 'tickcolor': "white"},
+            'axis': {'range': [0, max(max_val, current_val + 10)], 'tickwidth': 1, 'tickcolor': "white"},
             'bar': {'color': bar_color, 'thickness': 0.6},
             'bgcolor': "rgba(255, 255, 255, 0.1)",
-            'borderwidth': 0,
             'steps': [
-                {'range': [0, reorder_val], 'color': 'rgba(255, 75, 75, 0.3)'},
-                {'range': [reorder_val, max_val], 'color': 'rgba(0, 204, 150, 0.1)'}
+                {'range': [0, reorder_val], 'color': 'rgba(255, 75, 75, 0.3)'}
             ],
             'threshold': {
                 'line': {'color': "white", 'width': 4},
@@ -80,43 +62,48 @@ def draw_gauge(current_val, reorder_val, title, max_val=100):
             }
         }
     ))
-
-    fig.update_layout(
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        margin=dict(l=30, r=30, t=50, b=20),
-        height=280
-    )
+    fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
+                      margin=dict(l=30, r=30, t=50, b=20), height=280)
     return fig
 
 def main():
-    # --- BARRA LATERAL ---
+    # --- BARRA LATERAL: CALCULADORA DE STOCK DE SEGURIDAD ---
     with st.sidebar:
         st.image("https://cdn-icons-png.flaticon.com/512/2897/2897832.png", width=80)
         st.title("Configuración")
         
-        reorder_point = st.slider("Punto de Reorden (Stock de Seguridad)", 0, 100, 15)
+        st.subheader("🛠️ Calculadora de Stock")
+        with st.expander("Ingresar Demanda de Clientes", expanded=True):
+            demanda_c1 = st.number_input("Cliente 1 (uds/día)", min_value=0, value=10)
+            demanda_c2 = st.number_input("Cliente 2 (uds/día)", min_value=0, value=15)
+            demanda_c3 = st.number_input("Cliente 3 (uds/día)", min_value=0, value=5)
+            lead_time = st.number_input("Tiempo de Reposición (días)", min_value=1, value=3)
+            
+            # Cálculo de Stock de Seguridad (Demanda Total Diaria * Lead Time)
+            # Este es un cálculo simplificado de punto de pedido
+            demanda_total = demanda_c1 + demanda_c2 + demanda_c3
+            safety_stock_calculado = demanda_total * lead_time
+            
+            st.info(f"**Stock de Seguridad Sugerido: {safety_stock_calculado} unidades**")
+
+        # Usar el stock calculado como punto de reorden
+        manual_override = st.checkbox("¿Usar stock calculado como límite?", value=True)
+        if manual_override:
+            reorder_point = safety_stock_calculado
+        else:
+            reorder_point = st.slider("Punto de Reorden Manual", 0, 200, 15)
         
-        refresh_rate = st.select_slider(
-            "Velocidad de actualización",
-            options=[5, 10, 30, 60],
-            value=5,
-            help="Segundos entre actualizaciones"
-        )
+        refresh_rate = st.select_slider("Velocidad de actualización (seg)", options=[2, 5, 10, 30, 60], value=5)
         
         st.divider()
-        st.info("La plataforma toma automáticamente la última entrada registrada en el historial.")
+        st.caption("Los datos se toman de la última fila del historial.")
 
     # --- LÓGICA DE DATOS ---
     SHEET_ID = "1dCOy5iFQNx63fpARx-Ztx1ISy81Es0K4_2ZCyQ1lq0w"
     df_raw = load_data(SHEET_ID)
 
     if df_raw is not None and not df_raw.empty:
-        # 1. Extraer el ÚLTIMO dato del histórico (última fila)
         latest_data = df_raw.iloc[-1]
-        
-        # Asumimos estructura del sheet: Col 0: Timestamp/ID, Col 1: Producto A, Col 2: Producto B...
-        # O similar. Aquí identificamos columnas numéricas para graficar.
         numeric_cols = df_raw.select_dtypes(include=['number']).columns.tolist()
 
         # --- ENCABEZADO ---
@@ -128,39 +115,37 @@ def main():
 
         st.divider()
 
-        # --- VISUALIZACIÓN DE VELOCÍMETROS (TOP 3 O 4) ---
+        # --- VELOCÍMETROS ---
         if len(numeric_cols) > 0:
             cols_gauges = st.columns(min(len(numeric_cols), 4))
             for i, col_name in enumerate(numeric_cols[:4]):
                 current_value = latest_data[col_name]
+                # Ajustamos el máximo del velocímetro para que no se vea pequeño si el stock es alto
+                max_gauge = max(100, current_value * 1.5, reorder_point * 1.5)
                 with cols_gauges[i]:
-                    st.plotly_chart(draw_gauge(current_value, reorder_point, col_name), use_container_width=True)
+                    st.plotly_chart(draw_gauge(current_value, reorder_point, col_name, max_gauge), use_container_width=True)
 
-        # --- SECCIÓN INFERIOR: HISTÓRICO Y TABLA ---
+        # --- SECCIÓN DE ANÁLISIS ---
         st.divider()
-        col_list, col_graph = st.columns([1, 2])
+        col_m1, col_m2, col_m3 = st.columns(3)
+        with col_m1:
+            st.metric("Demanda Agregada", f"{demanda_total} uds/día")
+        with col_m2:
+            st.metric("Tiempo Reposición", f"{lead_time} días")
+        with col_m3:
+            st.metric("Stock Crítico", f"{reorder_point} uds")
 
-        with col_list:
-            st.subheader("📋 Estado Actual")
-            # Mostrar métricas rápidas del último registro
-            for col_name in numeric_cols[:5]:
-                val = latest_data[col_name]
-                status = "🔴 Crítico" if val <= reorder_point else "🟢 Normal"
-                st.metric(label=col_name, value=val, delta=status, delta_color="normal" if val > reorder_point else "inverse")
+        # Histórico
+        st.subheader("📈 Evolución del Inventario")
+        st.line_chart(df_raw[numeric_cols].tail(20))
 
-        with col_graph:
-            st.subheader("📈 Tendencia Reciente")
-            # Graficamos los últimos 20 registros para ver la evolución
-            st.line_chart(df_raw[numeric_cols].tail(20))
-
-        # --- TABLA DE DATOS CRUDOS ---
-        with st.expander("Ver base de datos completa (Historial)"):
+        with st.expander("Ver historial completo"):
             st.dataframe(df_raw.sort_index(ascending=False), use_container_width=True)
 
     else:
-        st.warning("Esperando conexión con Google Sheets...")
+        st.warning("Conectando con Google Sheets...")
 
-    # --- LÓGICA DE REFRESH AUTOMÁTICO ---
+    # --- REFRESH ---
     time.sleep(refresh_rate)
     st.rerun()
 
