@@ -68,7 +68,7 @@ def main():
         st.image("https://cdn-icons-png.flaticon.com/512/2897/2897832.png", width=80)
         st.title("Configuración")
         
-        # --- NUEVA SECCIÓN: CÁLCULO DE STOCK DE SEGURIDAD (LÚDICA) ---
+        # --- SECCIÓN: CÁLCULO DE STOCK DE SEGURIDAD ---
         st.divider()
         st.subheader("🛠️ Calculadora de Stock")
         with st.expander("Ingresar Parámetros", expanded=True):
@@ -77,14 +77,14 @@ def main():
             d3 = st.number_input("Demanda Cliente 3", 0, 20, 5)
             lead_time = st.number_input("Tiempo Reposición (seg)", 1, 60, 5)
             
-            # Cálculo lógico para la lúdica
+            # Cálculo lógico
             promedio_demanda = (d1 + d2 + d3) / 3
-            # El stock de seguridad sugerido es la demanda esperada durante el tiempo de espera
-            ss_calculado = round(promedio_demanda * (lead_time / 10), 2) # Factor de escala para lúdica
             
-        st.metric("Stock de Seguridad Sugerido", f"{ss_calculado} ud")
+            # SE HA MULTIPLICADO EL RESULTADO POR 4 SEGÚN TU SOLICITUD
+            ss_calculado = round((promedio_demanda * (lead_time / 10)) * 4, 2) 
+            
+        st.metric("Stock de Seguridad Sugerido (x4)", f"{ss_calculado} ud")
         
-        # Vinculamos el slider al cálculo automático si el usuario lo desea
         usar_calculo = st.checkbox("Usar este stock en Dashboard", value=False)
         
         if usar_calculo:
@@ -118,6 +118,7 @@ def main():
             for i, col_name in enumerate(numeric_cols[:4]):
                 current_value = latest_data[col_name]
                 with cols_gauges[i]:
+                    # Se usa el reorder_point que ya incluye la multiplicación si 'usar_calculo' está activo
                     st.plotly_chart(draw_gauge(current_value, reorder_point, col_name), use_container_width=True)
 
         st.divider()
